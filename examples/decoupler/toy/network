@@ -1,0 +1,12 @@
+#: :type=:list
+#ID	source	target	weight
+0	T1	G01	1.0
+1	T1	G02	1.0
+2	T1	G03	0.7
+3	T2	G06	1.0
+4	T2	G07	0.5
+5	T2	G08	1.0
+6	T3	G06	-0.5
+7	T3	G07	-3.0
+8	T3	G08	-1.0
+9	T3	G11	1.0

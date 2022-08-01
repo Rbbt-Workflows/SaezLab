@@ -1,0 +1,11 @@
+- if job 
+  .job_control
+    = workflow_partial('job_result/job_control', workflow, task, locals)
+
+- header "congruent", NumericValue
+- header "unexplained", NumericValue
+- header "explained", NumericValue
+- header "score", NumericValue
+= table :span => 'semicolon' do
+  - result
+

@@ -1,0 +1,70 @@
+- if job 
+  .job_control
+    = workflow_partial('job_result/job_control', workflow, task, locals)
+
+= table do
+  - result
+
+- regulome = nil
+
+- begin
+  - regulome = job_url(job.step(:regulome))
+- rescue
+  - regulome = job_url(job.step(:dorothea))
+- rescue
+
+.ui.basic.segment
+  %a.ui.button(href="#{escape_url(regulome)}?_format=tsv&filename=Regulome.tsv") Regulome
+
+- require 'rbbt/rest/common/tabs'
+
+
+:sass
+  .documentation
+    th, td
+      padding: 5px 10px
+      border: 1px solid #999
+    .vertical.menu
+      .item
+        display: block !important
+    figure
+      max-width: 100vmin
+      img
+        max-width: 100%
+      figcaption
+        font-size: 0.9em
+
+-# = fragment do
+  - regulome = job.step(:regulome).path.tsv :key_field => "source", :fields => %w(target weight), :merge => true, :type => :double
+  - predictions = job.step(:decoupler_predictions_knocktf).load
+  - expression =  job.step(:knocktf).load
+  - predictions = predictions.select({"Value" => ""}, true)
+  - datasets = predictions.keys
+  - tf = predictions.slice("TF").to_single
+  .documentation.ui.grid
+    .ui.four.wide.column
+      .ui.vertical.fluid.tabular.menu
+        - datasets.each do |dataset|
+          .item(data-tab="#{dataset}") #{ dataset } (#{predictions[dataset]["TF"]} => #{predictions[dataset]["Value"].to_f.round(2)})
+
+    .ui.twelve.wide.stretched.column
+      - TSV.traverse datasets, :bar => @step.progress_bar("Processing datasets") do |dataset|
+        .ui.tab.very.basic.segment(data-tab="#{dataset}")
+          %h2= dataset
+          - tf = predictions[dataset]["TF"]
+          - target_weigths = {}
+          - Misc.zip_fields(regulome[tf]).each do |target,weight|
+            - target_weigths[target] = weight.to_f
+          - target_info = TSV.setup({}, "Target~Expression,Weight,Sign,Abs weight")
+          - target_weigths.each do |target,weight|
+            - begin
+              - exp = expression[dataset][target]
+            - rescue
+              - next
+            - target_info[target] = [exp, weight, weight < 0 ? "-" : "+", weight.abs]
+          = table do
+            - target_info
+
+  :deferjs
+    update_rbbt()
+    $('.tabular.menu .item').tab();
