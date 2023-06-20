@@ -1,5 +1,6 @@
+require 'SaezLab/sources/knocktf'
 module SaezLab
-  task :knocktf => :tsv do
+  task :knocktf_old => :tsv do
 
     tsv = nil
     genes = nil
@@ -29,8 +30,27 @@ module SaezLab
     tsv
   end
 
-  task :knocktf_ground_truth => :tsv do
+  task :knocktf_ground_truth_old => :tsv do
     Rbbt.data.knockTF["knockTF_raw_table.txt"].tsv :fields => ["TF"], :header_hash => "", :type => :single
+  end
+
+  #input :knocktf_logfc_threshold, :float, "Threshold to select valid experiments", -1
+  task :knocktf => :tsv do |threshold|
+    #metadata = KnockTF.metadata.tsv 
+    #good = metadata.select("logFC"){|lfc| lfc.to_f <= threshold }.keys
+
+    #log :tfs, metadata.column("TF").values_at(*good).uniq.length
+
+    expression = KnockTF.expression.tsv
+    #expression.slice(good).transpose("Sample_ID")
+    expression.transpose("Sample_ID")
+  end
+
+  input :knocktf_logfc_threshold, :float, "Threshold to select valid experiments", -1
+  task :knocktf_ground_truth => :tsv do |threshold|
+    metadata = KnockTF.metadata.tsv 
+    good = metadata.select("logFC"){|lfc| lfc.to_f <= threshold }.keys
+    metadata.column("TF").subset(good).to_single
   end
 
   input :dorothea_confidence, :select, "Confidence level for DoRothEA", "C", :select_options => %w(A B C D E)
@@ -41,12 +61,7 @@ module SaezLab
     tsv
   end
 
-  input :manual_regulome, :file, "Manual regulome"
-  task :manual_regulome => :tsv do |manual_regulome|
-    TSV.open manual_regulome
-  end
-
-  dep :knocktf
+  dep :knocktf, :jobname => "Default"
   input :dorothea, :boolean, "Use DoRothEA instead of CombTRI literature counts regulome", false
   input :dorothea_confidence, :select, "Confidence level for DoRothEA", "C", :select_options => %w(A B C D E)
   dep :manual_regulome do |jobname,options|
@@ -92,7 +107,7 @@ module SaezLab
 
 
   dep :decoupler_knocktf
-  dep :knocktf_ground_truth
+  dep :knocktf_ground_truth, :jobname => "Default"
   task :decoupler_predictions_knocktf => :tsv do
     ground_truth = step(:knocktf_ground_truth).load
     result = step(:decoupler_knocktf).load
@@ -159,5 +174,64 @@ module SaezLab
 
     tsv
   end
+
+  dep :regulome
+  dep_task :evaluate_knocktf_auroc, SaezLab, :decouple_R_benchmark_auroc, :network => :regulome
+
+  dep :decoupler_knocktf
+  task :activity_expression => :tsv do
+    decoupler = step(:decoupler_knocktf).load
+    log2 = step(:knocktf).load
+    genes = decoupler.fields.collect{|f| f.sub(/ \(p.*\)/,'') }.uniq
+    genes &= log2.fields
+
+    data = TSV::Dumper.new(:key_field => "ID", :fields => "Associated Gene Name,Activity,Expression,Dataset,pvalue".split(","), :type => :list)
+    data.init
+
+    id = 0
+    TSV.traverse decoupler, :into => data, :bar => self.progress_bar do |dataset,decoupler_values|
+      log2_values = log2[dataset]
+      next if log2_values.nil?
+
+      res = []
+      res.extend MultipleResult
+      genes.each do |gene|
+        activity = decoupler_values[gene]
+        activity_pvalue = decoupler_values[gene + " (pvalue)"]
+        expression = log2_values[gene]
+        next if activity_pvalue > 0.1
+        next if expression == 0
+        id += 1
+        res << [id, [gene, activity, expression, dataset,activity_pvalue]]
+      end
+      res
+    end
+  end
+
+  dep :activity_expression
+  task :activity_expression_consistency => :tsv do
+    genes = TSV.setup({}, "Associated Gene Name~Matches,Miss-matches#:type=:list#:cast=:to_i")
+
+    TSV.traverse step(:activity_expression) do |id,values|
+      gene, activity, expression, dataset, pvalue = values
+
+      genes[gene] ||= [0, 0]
+      if activity.to_f > 0 == expression.to_f > 0
+        genes[gene][0] += 1 
+      else
+        genes[gene][1] += 1
+      end
+    end
+    genes
+  end
+
+  dep :activity_expression_consistency
+  task :activity_expression_consistency_ratio => :float do
+    data = step(:activity_expression_consistency).load 
+    matches = Misc.sum(data.column("Matches").values)
+    miss_matches = Misc.sum(data.column("Miss-matches").values)
+    matches / miss_matches
+  end
+
 
 end

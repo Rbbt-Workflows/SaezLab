@@ -1,15 +1,16 @@
 module SaezLab
 
+  dep ExTRI, :CollecTRI, :jobname => "Default"
   input :high_confidence, :boolean, "Use only high confidence entries", false
-  input :databases, :array, "Limit regulome to certain databases"
+  input :databases, :array, "Limit regulome to certain databases", []
   task :count_signs => :tsv do |hc,databases|
 
     Workflow.require_workflow "ExTRI"
 
-    extri = ExTRI.job('pairs_final')
+    collecTRI = step(:CollecTRI)
 
     pair_sign_info = {}
-    TSV.traverse extri, :bar => self.progress_bar("Processing pairs file") do |pair,values,fields|
+    TSV.traverse collecTRI, :bar => self.progress_bar("Processing pairs file") do |pair,values,fields|
       pair = pair.first if Array === pair
       db_fields = {}
 
@@ -47,9 +48,9 @@ module SaezLab
 
         signs = signs.collect do |s| 
           case s.downcase
-          when 'activate', 'up', 'activation', 'positive', 'go:2000144', '+'
+          when 'activate', 'up', 'activation', 'positive', 'go:2000144', '+', 'stimulate'
             '+'
-          when 'deactivate', 'repress', 'repression', 'down', 'negative', 'go:0033234', '-'
+          when 'deactivate', 'repress', 'repression', 'down', 'negative', 'go:0033234', '-', 'inhibit'
             '-'
           when '+_-', '-_+'
             '+_-'
@@ -63,7 +64,7 @@ module SaezLab
         db_sign_info[db] = signs.zip(pmids, confs)
       end
 
-      pair_sign_info[pair] = db_sign_info
+      pair_sign_info[pair] = db_sign_info unless db_sign_info.empty?
     end
 
     dbs = pair_sign_info.values.first.keys.sort
@@ -86,12 +87,50 @@ module SaezLab
   end
 
   dep :count_signs
+  dep :tf_role, :jobname => "Default"
+  task :missing_sign => :array do
+    tf_role = step(:tf_role).load
+
+    TSV.traverse step(:count_signs), :into => :stream, :bar => self.progress_bar("Generating regulome") do |pair,values|
+      pair = pair.first if Array === pair
+      source, target = pair.split(":")
+
+      ### This loop is run for each pair
+
+      # sign_evidence_pmids will hold the list of PMIDS support each sign: +,
+      # -, and ~ (unknown or not specified)
+      sign_evidence_pmids = {"+" => [], "-" => [], "~" => []}
+      Misc.zip_fields(values.reverse).each do |e,s|
+        s = "" if s.nil?
+        sign_evidence_pmids[s] = e.split(";")
+      end
+
+      if sign_evidence_pmids["+"].any? || sign_evidence_pmids["-"].any?
+        pos, neg = sign_evidence_pmids.values_at("+", "-").collect{|v| v.length}
+
+        min = [pos, neg].min
+        sum = pos + neg
+        
+        next if min < sum.to_f * 0.3
+      end
+
+      next if %w(- +).include? tf_role[source]
+
+      pair
+    end
+  end
+
+  dep :count_signs
+  dep :tf_role, :jobname => "Default"
   input :negative_evidence_proportion, :float, "Proportion of negative evidence for a negative sign (DEACTIVATED)", 1
   input :support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 5
   input :sign_support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 3
   input :sign_support_balance, :float, "Poportion of final weight that comes from sign", 0.1
-  input :strict_negative, :float, "Poportion of final weight that comes from sign", 0.2
-  task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative|
+  input :strict_negative, :float, "Proportion of negative evidence required to make pair negative", 0.2
+  input :use_tf_role, :boolean, "Use tf_role to fix negative values", false
+  task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative,use_tf_role|
+
+    tf_role = step(:tf_role).load
 
     dumper = TSV::Dumper.new :key_field => "ID", :fields => %w(source target weight), :type => :list
     dumper.init
@@ -164,16 +203,21 @@ module SaezLab
         # unknown) is larger than <strict_negative>, another parameter
         negative = true if (negative_evidence / signed_evidence) > strict_negative
 
+        flip = false
+        if use_tf_role && tf_role[source] == "-" && positive_evidence == 0
+          #iii [pair, sign_evidence_pmids] unless negative
+          flip = true unless negative
+          negative = true
+        end
+
         # Here we define the sign_weight as the proportion of evidence
         # supporting the chosen sign, which is positive unless it we deemed
         # negative. This means that a totally unkown signed pair will be
         # positive by default, but the sign_weight will be 0
         if negative
           sign = "-"
-          sign_weight = negative_evidence / signed_evidence
         else
           sign = "+"
-          sign_weight = positive_evidence / signed_evidence
         end
 
         # Here we compute the support_weight which measure how close we get to
@@ -187,13 +231,15 @@ module SaezLab
         support_weight = [1, non_contradictory_evidence / support_evidence_max].min
 
         # ToDo: test if sign_weight now
-        #correct_sign_evidence = sign_evidence[sign]
-        #signed_support_weight = [1, correct_sign_evidence / sign_support_evidence_max].min
+        correct_sign_evidence = sign_evidence[sign]
+        signed_support_weight = [1, correct_sign_evidence / sign_support_evidence_max].min
 
         # Here we calculate the final weight by combining sign_weight and
         # support_weight mixed in according to the variable
         # <sign_support_balance>
-        weight = (sign_weight * sign_support_balance) + (support_weight * (1-sign_support_balance))
+        weight = (signed_support_weight * sign_support_balance) + (support_weight * (1.0-sign_support_balance))
+
+        #iii [weight, signed_support_weight, support_weight] if flip
 
         # The final weight is made negative when the sign is negative because
         # this is how it is encoded in decopler
@@ -207,6 +253,11 @@ module SaezLab
     ensure
       set_info :controversies, controversies
     end
+  end
+
+  input :manual_regulome, :file, "Manual regulome" #, Rbbt.data.regulomes["CollecTRI.1-3-23.tsv"].tsv
+  task :manual_regulome => :tsv do |manual_regulome|
+    TSV === manual_regulome ? TSV.open(manual_regulome) : manual_regulome
   end
 
 end

@@ -6,19 +6,27 @@ SaezLab=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.
  lib=lib {
   sinatra.rb
   SaezLab=SaezLab{
+   sources=sources{
+    knocktf.rb
+   }
    tools=tools{
     dorothea.rb
     decoupler.rb
-    decouple_py.rb
    }
    tasks=tasks{
-    sophia_mueller.rb
 
     decoupler.rb
+    decoupler=decoupler{
+     tf_role.rb
+     sophia_mueller.rb
+     regulome.rb
+     knocktf.rb
+     sweep.rb
+    }
 
-    knocktf.rb
+    carnival.rb
 
-    sweep.rb
+    progeny.rb
    }
   }
  }
@@ -32,17 +40,13 @@ SaezLab=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.
  }
  data=data filter="*"{
  }
- sophia=opt/NTNU_decoupleR/code{
-  01_construct_homogenized_table.R
-  02_construct_networks.R
-  03_load_bench.R
-  04_final_plots.R
-  05_network_comparison.R
-  check_bias.R
-  constructNetwork_function.R
-  test_dorothea.R
-  test_networks.R
-  test_networks_knockTF.R
+ sophia=modules/CollecTRI/scripts/CollecTRI filter="*"{
+  01_resource_aggregation.R
+  02_mode_of_regulation.R
+  03_pypath_collecTRI.py
+  04.1_weights_matrixRider.R
+  04.2_weights_FIMO.R
+  04.3_weight_CollecTRI.R
  }
 
  www=www{
@@ -51,7 +55,7 @@ SaezLab=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.
     evaluate_knocktf=evaluate_knocktf{
      job_result.haml
     }
-    decoupler_knocktf_congruency=decouple_knocktf_congruency{
+    decoupler_knocktf_congruency=decoupler_knocktf_congruency{
      job_result.haml
     }
    }

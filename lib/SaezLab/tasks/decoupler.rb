@@ -1,5 +1,4 @@
 require 'SaezLab/tools/decoupler'
-
 module SaezLab
 
   input :method, :select, "Method to run", :ulm, :select_options => %w(ulm mln wsum combined)
@@ -11,7 +10,22 @@ module SaezLab
 
     options = {times: times, min_n: min_n}
     options.delete_if{|k,v| v.nil? }
-    acts, norm_acts, pvals = SaezLab.decoupler(method, matrix, network, options)
+    acts, norm_acts, pvals = begin
+                               SaezLab.decoupler(method, matrix, network, options)
+                             rescue PyCall::PyError
+                               if $!.message.include?("because there are more sources") ||
+                                   $!.message.include?("Singular matrix")
+                                   raise RbbtException, $!.message
+                               end
+
+                               if $!.message.include?("No sources with more than min_n")
+                                 log :no_predictions, "No decoupler predictions: " + $!.message
+                                 empty_tsv = TSV.setup({}, "ID~#:cast=:to_f#:type=:list")
+                                 [empty_tsv, empty_tsv, empty_tsv]
+                               else
+                                 raise $!
+                               end
+                             end
 
     Open.write(file('acts'), acts.to_s) if acts
     Open.write(file('norm_acts'), norm_acts.to_s) if norm_acts
@@ -260,4 +274,106 @@ module SaezLab
     tsv.attach extri
   end
 
+  input :network, :tsv, "Network with weights"
+  input :knocktf_logfc_threshold, :float, "Threshold to select valid experiments", -1
+  task :decouple_R_benchmark => :tsv do |network,threshold|
+
+
+    require 'rbbt/util/python'
+
+    Open.mkdir files_dir
+
+    tsv = nil
+    RbbtPython.run  do
+      decouple_kws={
+        args: {
+          wsum: {times: 100}
+        }
+      }
+
+      begin
+        pyimport :pandas, :as => :pd
+        pyimport :numpy, :as => :np
+        pyimport :decoupler, :as => :dc
+
+        net = if network
+                network.process 'weight' do |v|
+                  v.to_f
+                end
+                RbbtPython.tsv2df network
+              else
+                dc.get_dorothea(levels:['A', 'B', 'C', 'D'])
+              end
+
+        mat = pd.read_csv(Rbbt.data.knockTF_new['knockTF_expr.csv'].find, index_col:0)
+        obs = pd.read_csv(Rbbt.data.knockTF_new['knockTF_meta.csv'].find, index_col:0)
+
+        msk = obs['logFC'] < threshold 
+        mat = mat[msk]
+        obs = obs[msk]
+
+        # Run benchmark pipeline
+        df = dc.benchmark(mat, obs, net, perturb:'TF', sign:-1, verbose:true, decouple_kws: decouple_kws)
+
+        tsv = RbbtPython.df2tsv df
+      rescue PyCall::Error
+        if $!.message.include?("because there are more sources") ||
+            $!.message.include?("Singular matrix")
+
+          if decouple_kws.include?("methods")
+            raise RbbtException, $!.message
+          else
+            Log.warn "Retrying without mlm after exception: #{$!.message}"
+            decouple_kws["methods"] = %w(ulm wsum)
+            retry
+          end
+        elsif $!.message.include?("ZeroDivisionError")
+          Log.warn "Retrying without mlm after exception: #{$!.message}"
+          decouple_kws["methods"] = %w(ulm)
+          retry
+          raise RbbtException, $!.message
+        else
+          raise $!
+        end
+      end
+    end
+    tsv
+  end
+
+  dep :decouple_R_benchmark
+  extension :png
+  task :decouple_R_benchmark_boxplot => :binary do
+    require 'rbbt/util/R'
+    require 'rbbt/util/R/plot'
+
+    tsv = step(:decouple_R_benchmark).load
+
+    boxplot_file = file('boxplot.png')
+
+    tsv = tsv.select("metric" => 'mcauroc')
+
+    R::PNG.ggplot(self.tmp_path, tsv, <<-EOF, 7, 7) 
+plot = ggplot(data) + geom_boxplot(aes(x=method, y=score)) + theme_classic() + rbbt.ggplot2.rotate_x_labels() 
+
+    EOF
+
+    nil
+  end
+
+  dep :decouple_R_benchmark
+  task :decouple_R_benchmark_auroc => :float do
+    require 'rbbt/util/R'
+    require 'rbbt/util/R/plot'
+
+    tsv = step(:decouple_R_benchmark).load
+
+    tsv.select("metric" => 'auroc').select("method" => 'consensus_estimate').column("score").values.flatten.first
+
+  end
 end
+require 'SaezLab/tasks/decoupler/tf_role.rb'
+require 'SaezLab/tasks/decoupler/knocktf.rb'
+require 'SaezLab/tasks/decoupler/regulome.rb'
+require 'SaezLab/tasks/decoupler/sophia_mueller.rb'
+require 'SaezLab/tasks/decoupler/sweep.rb'
+

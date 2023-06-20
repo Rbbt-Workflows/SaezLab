@@ -1,0 +1,3 @@
+[submodule "modules/CollecTRI"]
+	path = modules/CollecTRI
+	url = https://github.com/saezlab/CollecTRI.git
