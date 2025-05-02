@@ -9,6 +9,7 @@ module SaezLab
   task :decoupler => :tsv do |method,matrix,network,times,min_n|
 
     matrix = TSV.open(matrix) unless TSV === matrix
+
     options = {times: times, min_n: min_n}
     options.delete_if{|k,v| v.nil? }
     acts, norm_acts, pvals = begin

@@ -16,6 +16,8 @@ module SaezLab
     mat = mat.tsv if Path === mat
     net = net.tsv if Path === net
 
+    net = net.tsv if Path === net
+    mat = mat.tsv if Path === mat
     mat = RbbtPython.tsv2df(mat) if TSV === mat
     net = RbbtPython.tsv2df(net) if TSV === net
 
