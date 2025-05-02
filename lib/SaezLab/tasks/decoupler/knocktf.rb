@@ -78,9 +78,9 @@ module SaezLab
       nil
     end
   end
-  dep :regulome do |jobname,options|
+  dep :regulome do |jobname,options,dependencies|
     if options[:dorothea]
-      dependencies.select{|d| d.task_name == :dorothea }.first
+      dependencies.flatten.select{|d| d.task_name == :dorothea }.first
     elsif options[:manual_regulome]
       dependencies.select{|d| d.task_name == :manual_regulome }.first
     else

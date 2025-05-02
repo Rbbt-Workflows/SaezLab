@@ -12,6 +12,7 @@ SaezLab=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.
    tools=tools{
     dorothea.rb
     decoupler.rb
+    pypath.rb
    }
    tasks=tasks{
 
@@ -47,6 +48,9 @@ SaezLab=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.
   04.1_weights_matrixRider.R
   04.2_weights_FIMO.R
   04.3_weight_CollecTRI.R
+ }
+ python=python{
+  test.py
  }
 
  www=www{

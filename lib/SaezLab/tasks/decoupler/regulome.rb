@@ -54,7 +54,7 @@ module SaezLab
             '-'
           when '+_-', '-_+'
             '+_-'
-          when 'unknown', '', 'NA', 'not_applicable', '?'
+          when 'unknown', '', 'NA', 'not_applicable', '?', 'undefined'
             '~'
           else
             raise "What sign: '#{s}'"
@@ -122,13 +122,17 @@ module SaezLab
 
   dep :count_signs
   dep :tf_role, :jobname => "Default"
-  input :negative_evidence_proportion, :float, "Proportion of negative evidence for a negative sign (DEACTIVATED)", 1
-  input :support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 5
-  input :sign_support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 3
+  input :negative_evidence_proportion, :float, "(DEACTIVATED) Proportion of negative evidence for a negative sign", 1
+  input :support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 100
+  input :sign_support_evidence_max, :integer, "(DEACTIVATED) Number of supporting evidence papers maximum to consider", 3
   input :sign_support_balance, :float, "Poportion of final weight that comes from sign", 0.1
-  input :strict_negative, :float, "Proportion of negative evidence required to make pair negative", 0.2
+  input :strict_negative, :float, "Proportion of negative evidence required to make pair negative", 0.5
   input :use_tf_role, :boolean, "Use tf_role to fix negative values", false
-  task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative,use_tf_role|
+  input :auto_regulation_weight, :float, "Set weight for auto-regulation", 0.5
+  task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative,use_tf_role,auto_regulation_weight|
+
+
+    auto_regulation_weight = nil if auto_regulation_weight.to_f == 0
 
     tf_role = step(:tf_role).load
 
@@ -140,106 +144,108 @@ module SaezLab
       TSV.traverse step(:count_signs), :into => dumper, :bar => self.progress_bar("Generating regulome") do |pair,values|
         pair = pair.first if Array === pair
         source, target = pair.split(":")
-
-        ### This loop is run for each pair
-
-        # sign_evidence_pmids will hold the list of PMIDS support each sign: +,
-        # -, and ~ (unknown or not specified)
-        sign_evidence_pmids = {"+" => [], "-" => [], "~" => []}
-        Misc.zip_fields(values.reverse).each do |e,s|
-          s = "" if s.nil?
-          sign_evidence_pmids[s] = e.split(";")
-        end
-
-        # NOTE: The lists of PMIDs for each sign might include repetitions, so
-        # if two databases reviewed the same PMID and reported it, it will be
-        # counted twice. Perhaps we can change that
-
-        # Here we just count the pairs in which we have the same PMID used as
-        # evidence for contradicting signs (the & sign means intersecting two
-        # lists). Not used in scoring.
-        if (sign_evidence_pmids["-"] & sign_evidence_pmids["+"]).any?
-          controversies += 1
-        end
-
-        # Here I take out all PMIDs that indicate some sign from the list of ~
-        # because maybe two databases report the same but one didn't care to
-        # indicate the sign. In that case I assume that the PMID does indicate
-        # the sign and ignore the entry that doesn't reflect that
-        sign_evidence_pmids["~"] = sign_evidence_pmids["~"] - (sign_evidence_pmids["+"] + sign_evidence_pmids["-"])
-
-        # Here we turn the lists of PMIDs into counts, which is basically just
-        # the length of the list in each sign
-        sign_evidence = Hash.new(0)
-        sign_evidence_pmids.each do |s,l|
-          sign_evidence[s] = l.length
-        end
-
-        # Just use some placeholder variables here for clarity. They are turn
-        # to continuous variables (float; .to_f) to avoid rounding up when I do operations
-        # later with them
-        positive_evidence = sign_evidence["+"].to_f
-        negative_evidence = sign_evidence["-"].to_f
-
-        signed_evidence = Misc.sum(sign_evidence.values_at("+", "-")).to_f
-
-        non_negative_evidence = Misc.sum(sign_evidence.values_at("+", "~")).to_f
-        non_positive_evidence = Misc.sum(sign_evidence.values_at("-", "~")).to_f
-
-        # This is the total number of articles
-        total_evidence = Misc.sum(sign_evidence.values).to_f
-
-        # Here we decide if the negative evidence is sufficient to deem the
-        # interaction negative: more negative articles than positive, while
-        # also the negative evidence divided by positive + unkown must be more than
-        # <negative_evidence_proportion>, one of the parameters. Come to think
-        # of it the denominator should probably be total_evidence and not
-        # non_positive_evidence, otherwise it's not really a proportion. I
-        # haven't change this yet
-        negative = negative_evidence > positive_evidence && negative_evidence / non_positive_evidence > negative_evidence_proportion
-
-        # As a final rule, the pair is negative if the proportion of negative
-        # evidence divided by all the signed_evidence (i.e. ignoring the
-        # unknown) is larger than <strict_negative>, another parameter
-        negative = true if (negative_evidence / signed_evidence) > strict_negative
-
-        flip = false
-        if use_tf_role && tf_role[source] == "-" && positive_evidence == 0
-          #iii [pair, sign_evidence_pmids] unless negative
-          flip = true unless negative
-          negative = true
-        end
-
-        # Here we define the sign_weight as the proportion of evidence
-        # supporting the chosen sign, which is positive unless it we deemed
-        # negative. This means that a totally unkown signed pair will be
-        # positive by default, but the sign_weight will be 0
-        if negative
-          sign = "-"
+        if auto_regulation_weight && source == target
+          weight = auto_regulation_weight
         else
-          sign = "+"
-        end
 
-        # Here we compute the support_weight which measure how close we get to
-        # having <support_evidence_max> (another parameter) PMIDs not
-        # contradicting our sign. So if support_evidence_max is 10 and we have
-        # 2 positive, 1 negative and 2 unkown evidences than that would be a
-        # positive relationship with 4 non_contradictory_evidences, and the
-        # support_weight will be 4 / 10
-        
-        non_contradictory_evidence = Misc.sum(sign_evidence.values_at(*[sign, "~"].uniq))
-        support_weight = [1, non_contradictory_evidence / support_evidence_max].min
+          ### This loop is run for each pair
 
-        # ToDo: test if sign_weight now
-        correct_sign_evidence = sign_evidence[sign]
-        signed_support_weight = [1, correct_sign_evidence / sign_support_evidence_max].min
+          # sign_evidence_pmids will hold the list of PMIDS support each sign: +,
+          # -, and ~ (unknown or not specified)
+          sign_evidence_pmids = {"+" => [], "-" => [], "~" => []}
+          Misc.zip_fields(values.reverse).each do |e,s|
+            s = "" if s.nil?
+            sign_evidence_pmids[s] = e.split(";").uniq
+          end
 
-        # Here we calculate the final weight by combining sign_weight and
-        # support_weight mixed in according to the variable
-        # <sign_support_balance>
-        weight = (signed_support_weight * sign_support_balance) + (support_weight * (1.0-sign_support_balance))
+          # NOTE: The lists of PMIDs for each sign might include repetitions, so
+          # if two databases reviewed the same PMID and reported it, it will be
+          # counted twice. Perhaps we can change that
 
-        #iii [weight, signed_support_weight, support_weight] if flip
+          # Here we just count the pairs in which we have the same PMID used as
+          # evidence for contradicting signs (the & sign means intersecting two
+          # lists). Not used in scoring.
+          if (sign_evidence_pmids["-"] & sign_evidence_pmids["+"]).any?
+            controversies += 1
+          end
+
+          # Here I take out all PMIDs that indicate some sign from the list of ~
+          # because maybe two databases report the same but one didn't care to
+          # indicate the sign. In that case I assume that the PMID does indicate
+          # the sign and ignore the entry that doesn't reflect that
+          sign_evidence_pmids["~"] = sign_evidence_pmids["~"] - (sign_evidence_pmids["+"] + sign_evidence_pmids["-"])
+
+          # Here we turn the lists of PMIDs into counts, which is basically just
+          # the length of the list in each sign
+          sign_evidence = Hash.new(0)
+          sign_evidence_pmids.each do |s,l|
+            sign_evidence[s] = l.length
+          end
+
+          # Just use some placeholder variables here for clarity. They are turn
+          # to continuous variables (float; .to_f) to avoid rounding up when I do operations
+          # later with them
+          positive_evidence = sign_evidence["+"].to_f
+          negative_evidence = sign_evidence["-"].to_f
+
+          signed_evidence = Misc.sum(sign_evidence.values_at("+", "-")).to_f
+
+          non_negative_evidence = Misc.sum(sign_evidence.values_at("+", "~")).to_f
+          non_positive_evidence = Misc.sum(sign_evidence.values_at("-", "~")).to_f
+
+          # This is the total number of articles
+          total_evidence = Misc.sum(sign_evidence.values).to_f
+
+          # Here we decide if the negative evidence is sufficient to deem the
+          # interaction negative: more negative articles than positive, while
+          # also the negative evidence divided by positive + unkown must be more than
+          # <negative_evidence_proportion>, one of the parameters. Come to think
+          # of it the denominator should probably be total_evidence and not
+          # non_positive_evidence, otherwise it's not really a proportion. I
+          # haven't change this yet
+          negative = negative_evidence > positive_evidence && negative_evidence / non_positive_evidence > negative_evidence_proportion
+
+          # As a final rule, the pair is negative if the proportion of negative
+          # evidence divided by all the signed_evidence (i.e. ignoring the
+          # unknown) is larger than <strict_negative>, another parameter
+          negative = true if (negative_evidence / signed_evidence) > strict_negative
+
+          flip = false
+          if use_tf_role && tf_role[source] == "-" && positive_evidence == 0
+            #iii [pair, sign_evidence_pmids] unless negative
+            flip = true unless negative
+            negative = true
+          end
+
+          # Here we define the sign_weight as the proportion of evidence
+          # supporting the chosen sign, which is positive unless it we deemed
+          # negative. This means that a totally unkown signed pair will be
+          # positive by default, but the sign_weight will be 0
+          if negative
+            sign = "-"
+          else
+            sign = "+"
+          end
+
+          # Here we compute the support_weight which measure how close we get to
+          # having <support_evidence_max> (another parameter) PMIDs not
+          # contradicting our sign. So if support_evidence_max is 10 and we have
+          # 2 positive, 1 negative and 2 unkown evidences than that would be a
+          # positive relationship with 4 non_contradictory_evidences, and the
+          # support_weight will be 4 / 10
+
+          non_contradictory_evidence = Misc.sum(sign_evidence.values_at(*[sign, "~"].uniq))
+          support_weight = [1, non_contradictory_evidence / support_evidence_max].min
+
+          # ToDo: test if sign_weight now
+          correct_sign_evidence = sign_evidence[sign]
+          #signed_support_weight = [1, correct_sign_evidence / sign_support_evidence_max].min
+          signed_support_weight = [1, correct_sign_evidence / total_evidence].min
+
+          # Here we calculate the final weight by combining sign_weight and
+          # support_weight mixed in according to the variable
+          # <sign_support_balance>
+          weight = (signed_support_weight * sign_support_balance) + (support_weight * (1.0-sign_support_balance))
 
         # The final weight is made negative when the sign is negative because
         # this is how it is encoded in decopler
@@ -247,6 +253,7 @@ module SaezLab
 
         next if weight.nan?
 
+      end
         id += 1
         [id, [source, target, weight]]
       end

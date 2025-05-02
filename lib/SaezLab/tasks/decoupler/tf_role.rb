@@ -1,11 +1,11 @@
 module SaezLab
 
   task :tf_role_annotations => :tsv do
-    tsv = Rbbt.data.annotations["tf_annotation_activators_repressors.csv"].tsv :sep => ',', :header_hash => '', :type => :list
+    tsv = Rbbt.data.Annotations["tf_annotation_activators_repressors.csv"].tsv :sep => ',', :header_hash => '', :type => :list
     tsv.key_field = "Associated Gene Name"
 
-    astrid_activators = Rbbt.data.annotations["Astrid_go_activator_proteins.txt"].list
-    astrid_repressors = Rbbt.data.annotations["Astrid_go_repressor_proteins.txt"].list
+    astrid_activators = Rbbt.data.Annotations["Astrid_go_activator_proteins.txt"].list
+    astrid_repressors = Rbbt.data.Annotations["Astrid_go_repressor_proteins.txt"].list
 
     tsv.add_field "GO_Activator_0045944_with_children" do |k|
       astrid_activators.include?(k) ? "1" : "0"
@@ -15,7 +15,7 @@ module SaezLab
       astrid_repressors.include?(k) ? "1" : "0"
     end
 
-    soto = Rbbt.data.annotations["soto2021.csv"].tsv :header_hash => '', :type => :list, :fields => ["Domain type","Activity (H, M or L)", "Confidence (H, M or L)"], :key_field => "TF name"
+    soto = Rbbt.data.Annotations["soto2021.csv"].tsv :header_hash => '', :type => :list, :fields => ["Domain type","Activity (H, M or L)", "Confidence (H, M or L)"], :key_field => "TF name"
     soto.key_field = "Associated Gene Name"
 
     soto.fields = ["Soto Role", "Soto Activity", "Soto Confidence"]
@@ -31,7 +31,7 @@ module SaezLab
       end
     end
 
-    taipale = Rbbt.data.annotations["taipale2022.csv"].tsv :header_hash => '', :type => :list
+    taipale = Rbbt.data.Annotations["taipale2022.csv"].tsv :header_hash => '', :type => :list
     taipale.key_field = "Associated Gene Name"
 
     taipale.add_field "Taipale Active Fraction Role" do |k,v|
@@ -60,8 +60,8 @@ module SaezLab
     tsv = tsv.attach taipale, :complete => true, :fields => ["Taipale Active Fraction Role", "Taipale Intensity Role"]
     tsv = tsv.attach soto, :complete => true
 
-    krab_super = Rbbt.data.annotations["KRAB_superfam_HS_IPRO3651.txt"].tsv(:header_hash => "").keys
-    krab_ancient = Rbbt.data.annotations["KRAB_ancient_HS_IPRO03655.txt"].tsv(:header_hash => "").keys
+    krab_super = Rbbt.data.Annotations["KRAB_superfam_HS_IPRO3651.txt"].tsv(:header_hash => "").keys
+    krab_ancient = Rbbt.data.Annotations["KRAB_ancient_HS_IPRO03655.txt"].tsv(:header_hash => "").keys
 
     uni2name = Organism.identifiers(Organism.default_code("Hsa")).index :target => "Associated Gene Name", :fields => "UniProt/SwissProt Accession", :persist => true
 
@@ -115,7 +115,7 @@ module SaezLab
   end
 
   task :tf_role => :tsv do
-    tsv = Rbbt.data.annotations.Astrid_TF_role["CollecTRI_TF-role_new_draft_211122.tsv"].tsv :type => :list
+    tsv = Rbbt.data.Annotations.Astrid_TF_role["CollecTRI_TF-role_new_draft_211122.tsv"].tsv :type => :list
     tsv.key_field = "Associated Gene Name"
     tsv.add_field "Sign" do |k,v|
       case v["STRICT_agreement (GO/UniProt-StructureFunction)"]

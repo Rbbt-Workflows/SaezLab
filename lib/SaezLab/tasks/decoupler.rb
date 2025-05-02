@@ -1,24 +1,31 @@
 require 'SaezLab/tools/decoupler'
 module SaezLab
 
-  input :method, :select, "Method to run", :ulm, :select_options => %w(ulm mln wsum combined)
+  input :method, :select, "Method to run", :ulm, :select_options => %w(ulm mlm wsum combined)
   input :matrix, :tsv, "Matrix of readouts"
   input :network, :tsv, "Network with weights"
   input :times, :integer, "Not always used",nil
   input :min_n, :integer, "Minimum of target features per biological entity ", 5
   task :decoupler => :tsv do |method,matrix,network,times,min_n|
 
+    matrix = TSV.open(matrix) unless TSV === matrix
     options = {times: times, min_n: min_n}
     options.delete_if{|k,v| v.nil? }
     acts, norm_acts, pvals = begin
-                               SaezLab.decoupler(method, matrix, network, options)
-                             rescue PyCall::PyError
-                               if $!.message.include?("because there are more sources") ||
-                                   $!.message.include?("Singular matrix")
-                                   raise RbbtException, $!.message
+                               set_info :used_min_n, options[:min_n]
+                               SaezLab.run_decoupler_script(method, matrix, network, options)
+                             rescue
+                               Log.exception $!
+                               if $!.message.include?("sources")
+                                 options[:min_n] = options[:min_n] + 1
+                                 log :retry, "Trying #{options[:min_n]}"
+                                 retry
+                               end
+                               if $!.message.include?("Singular matrix")
+                                 raise RbbtException, $!.message
                                end
 
-                               if $!.message.include?("No sources with more than min_n")
+                               if $!.message.include?("reduce the number assigned to min_n")
                                  log :no_predictions, "No decoupler predictions: " + $!.message
                                  empty_tsv = TSV.setup({}, "ID~#:cast=:to_f#:type=:list")
                                  [empty_tsv, empty_tsv, empty_tsv]
@@ -27,9 +34,9 @@ module SaezLab
                                end
                              end
 
-    Open.write(file('acts'), acts.to_s) if acts
-    Open.write(file('norm_acts'), norm_acts.to_s) if norm_acts
-    Open.write(file('pvals'), pvals.to_s) if pvals
+    #acts.write_file(file('acts')) if acts
+    #norm_acts.write_file(file('norm_acts')) if norm_acts
+    #pvals.write_file(file('pvals')) if pvals
 
     norm_acts.fields = norm_acts.fields.collect{|f| "#{f} (norm)" } if norm_acts
     pvals.fields = pvals.fields.collect{|f| "#{f} (pvalue)" } if pvals
@@ -41,7 +48,31 @@ module SaezLab
   end
 
   dep :decoupler
-  task :decoupler_status => :array do 
+  input :threshold, :float, "P-value threshold", 0.05
+  task :decoupler_activities => :tsv do |threshold|
+    tsv = step(:decoupler).load.transpose("Associated Gene Name")
+
+    genes = tsv.keys.collect{|f| f.split(" ").first}.uniq
+
+    new = tsv.annotate({})
+    genes.each do |gene|
+      if tsv.include? gene
+        values = tsv[gene]
+        pvalues = tsv[gene + " (pvalue)"]
+      else
+        values = tsv[gene + " (consensus_estimate)"]
+        pvalues = tsv[gene + " (consensus_pvals)"]
+      end
+      new_values = values.zip(pvalues).collect do |v,p|
+        p.to_f < threshold ? v : 0
+      end
+      new[gene] = new_values
+    end
+    new
+  end
+
+  dep :decoupler
+  task :decoupler_status => :array do
 
     matrix = self.recursive_inputs[:matrix]
     matrix = TSV.open matrix unless TSV === matrix

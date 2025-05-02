@@ -125,14 +125,15 @@ module SaezLab
 
   dep :evaluate_knocktf, :databases => [], :jobname => "CollecTRI", :canfail => true
   dep :evaluate_knocktf, :databases => :placeholder, :canfail => true do |jobname,options|
-    SaezLab.ExTRI_databases.collect do |db|
+    #SaezLab.ExTRI_databases.collect do |db|
+    ["ExTRI", "GEREDB", "DoRothEA_A", "NTNU Curated", "TRRUST"].collect do |db|
       {:inputs => options.merge(:databases => [db]), :jobname => db }
     end
   end
   dep :evaluate_knocktf, :databases => [], :dorothea => true, :jobname => "Dorothea"
   task :database_sweep => :tsv do
     dependencies.inject(nil) do |acc,dep|
-      next acc if dep.error?
+      next acc unless dep.done?
       if dep.recursive_inputs[:dorothea]
         database = "Dorothea"
       else
@@ -176,10 +177,11 @@ module SaezLab
   task :database_sweep_plot => :binary do
     R::PNG.ggplot self.tmp_path, step(:database_sweep).load, <<-EOR, 6, 4 
 rbbt.require('colorspace')
+rbbt.require('ggrepel')
 data$Database = rownames(data)
 names(data) <- make.names(names(data))
 ggplot(data, ) + geom_point(aes(x=Matches,y=Accuracy..,color=Database)) +
-   geom_text(aes(x=Matches,y=Accuracy..,label=Database)) + 
+   geom_text_repel(aes(x=Matches,y=Accuracy..,label=Database)) + 
    theme_classic() +
    scale_fill_continuous_diverging()
     EOR
