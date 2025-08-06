@@ -115,7 +115,7 @@ module SaezLab
   end
 
   task :tf_role => :tsv do
-    tsv = Rbbt.data.Annotations.Astrid_TF_role["CollecTRI_TF-role_new_draft_211122.tsv"].tsv :type => :list
+    tsv = Rbbt.data.annotations.Astrid_TF_role["CollecTRI_TF-role_new_draft_211122.tsv"].tsv :type => :list
     tsv.key_field = "Associated Gene Name"
     tsv.add_field "Sign" do |k,v|
       case v["STRICT_agreement (GO/UniProt-StructureFunction)"]

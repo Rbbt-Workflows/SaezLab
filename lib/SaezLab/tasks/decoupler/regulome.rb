@@ -121,6 +121,28 @@ module SaezLab
   end
 
   dep :count_signs
+  task mainly_repressor: :array do
+    tf_signs = {}
+    TSV.traverse step(:count_signs), :bar => self.progress_bar("Generating regulome") do |pair,values|
+      source, target = pair.split(":")
+      signs, pmids = values
+      counts = pmids.collect{|v| v.split(';').uniq.length }
+      sign_counts = Misc.zip2hash(signs, counts)
+      negative = sign_counts["-"] || 0
+      positive = sign_counts["+"] || 0
+
+      tf_signs[source] ||= 0
+      if negative >= positive
+        tf_signs[source] -= 1
+      else 
+        tf_signs[source] += 1
+      end
+    end
+    tf_signs.select{|tf,c| c < 0 }.collect{|tf,c| tf }
+  end
+
+  dep :count_signs
+  dep :mainly_repressor
   dep :tf_role, :jobname => "Default"
   input :negative_evidence_proportion, :float, "(DEACTIVATED) Proportion of negative evidence for a negative sign", 1
   input :support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 100
@@ -134,7 +156,8 @@ module SaezLab
 
     auto_regulation_weight = nil if auto_regulation_weight.to_f == 0
 
-    tf_role = step(:tf_role).load
+    tf_role = step(:tf_role).load if use_tf_role
+    mainly_repressor = step(:mainly_repressor).load
 
     dumper = TSV::Dumper.new :key_field => "ID", :fields => %w(source target weight), :type => :list
     dumper.init
@@ -210,6 +233,8 @@ module SaezLab
           # unknown) is larger than <strict_negative>, another parameter
           negative = true if (negative_evidence / signed_evidence) > strict_negative
 
+          negative = true if mainly_repressor.include?(source) && positive_evidence == 0
+
           flip = false
           if use_tf_role && tf_role[source] == "-" && positive_evidence == 0
             #iii [pair, sign_evidence_pmids] unless negative
@@ -247,9 +272,9 @@ module SaezLab
           # <sign_support_balance>
           weight = (signed_support_weight * sign_support_balance) + (support_weight * (1.0-sign_support_balance))
 
-        # The final weight is made negative when the sign is negative because
-        # this is how it is encoded in decopler
-        weight = - weight if sign == "-" 
+          # The final weight is made negative when the sign is negative because
+          # this is how it is encoded in decopler
+          weight = - weight if sign == "-" 
 
         next if weight.nan?
 
