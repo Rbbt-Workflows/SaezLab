@@ -147,27 +147,32 @@ module SaezLab
   input :negative_evidence_proportion, :float, "(DEACTIVATED) Proportion of negative evidence for a negative sign", 1
   input :support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 100
   input :sign_support_evidence_max, :integer, "(DEACTIVATED) Number of supporting evidence papers maximum to consider", 3
-  input :sign_support_balance, :float, "Poportion of final weight that comes from sign", 0.1
+  input :sign_support_balance, :float, "Poportion of final weight that comes from sign. A value of -1 uses +1 and -1 values and ignores weight calculations", -1 
   input :strict_negative, :float, "Proportion of negative evidence required to make pair negative", 0.5
   input :use_tf_role, :boolean, "Use tf_role to fix negative values", false
-  input :auto_regulation_weight, :float, "Set weight for auto-regulation", 0.5
-  task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative,use_tf_role,auto_regulation_weight|
+  input :auto_regulation_weight, :float, "Set weight for auto-regulation", 0
+  input :filter_valid_tfs, :boolean, "Consider only validated TFs", false
+  task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative,use_tf_role,auto_regulation_weight,filter_valid_tfs|
 
+    valid_tfs = Rbbt.data.valid_tfs.list
 
-    auto_regulation_weight = nil if auto_regulation_weight.to_f == 0
+    auto_regulation_weight = nil if auto_regulation_weight.to_f == 0.0
 
     tf_role = step(:tf_role).load if use_tf_role
     mainly_repressor = step(:mainly_repressor).load
 
-    dumper = TSV::Dumper.new :key_field => "ID", :fields => %w(source target weight), :type => :list
-    dumper.init
+    tsv = TSV.setup({}, :key_field => "ID", :fields => %w(source target weight), :type => :list)
     id = 1
     controversies = 0
     begin
-      TSV.traverse step(:count_signs), :into => dumper, :bar => self.progress_bar("Generating regulome") do |pair,values|
+      TSV.traverse step(:count_signs), :into => tsv, :bar => self.progress_bar("Generating regulome") do |pair,values|
         pair = pair.first if Array === pair
         source, target = pair.split(":")
+
+        next if filter_valid_tfs && ! valid_tfs.include?(source)
         if auto_regulation_weight && source == target
+          next if auto_regulation_weight == -1
+          next if auto_regulation_weight == -2
           weight = auto_regulation_weight
         else
 
@@ -183,7 +188,7 @@ module SaezLab
 
           # NOTE: The lists of PMIDs for each sign might include repetitions, so
           # if two databases reviewed the same PMID and reported it, it will be
-          # counted twice. Perhaps we can change that
+          # counted twice. Perhaps we can change that. THIS SEEMS FIXED
 
           # Here we just count the pairs in which we have the same PMID used as
           # evidence for contradicting signs (the & sign means intersecting two
@@ -231,15 +236,16 @@ module SaezLab
           # As a final rule, the pair is negative if the proportion of negative
           # evidence divided by all the signed_evidence (i.e. ignoring the
           # unknown) is larger than <strict_negative>, another parameter
-          negative = true if (negative_evidence / signed_evidence) > strict_negative
+          negative = true if negative_evidence > 0 && (negative_evidence / signed_evidence) >= strict_negative
 
           negative = true if mainly_repressor.include?(source) && positive_evidence == 0
 
           flip = false
           if use_tf_role && tf_role[source] == "-" && positive_evidence == 0
-            #iii [pair, sign_evidence_pmids] unless negative
             flip = true unless negative
             negative = true
+          elsif positive_evidence <= negative_evidence
+            negative = true if mainly_repressor.include?(source)
           end
 
           # Here we define the sign_weight as the proportion of evidence
@@ -252,39 +258,74 @@ module SaezLab
             sign = "+"
           end
 
-          # Here we compute the support_weight which measure how close we get to
-          # having <support_evidence_max> (another parameter) PMIDs not
-          # contradicting our sign. So if support_evidence_max is 10 and we have
-          # 2 positive, 1 negative and 2 unkown evidences than that would be a
-          # positive relationship with 4 non_contradictory_evidences, and the
-          # support_weight will be 4 / 10
+          if sign_support_balance == -1
+            if sign == '+'
+              weight = 1
+            else
+              weight = -1
+            end
+          else
 
-          non_contradictory_evidence = Misc.sum(sign_evidence.values_at(*[sign, "~"].uniq))
-          support_weight = [1, non_contradictory_evidence / support_evidence_max].min
+            # Here we compute the support_weight which measure how close we get to
+            # having <support_evidence_max> (another parameter) PMIDs not
+            # contradicting our sign. So if support_evidence_max is 10 and we have
+            # 2 positive, 1 negative and 2 unkown evidences than that would be a
+            # positive relationship with 4 non_contradictory_evidences, and the
+            # support_weight will be 4 / 10
 
-          # ToDo: test if sign_weight now
-          correct_sign_evidence = sign_evidence[sign]
-          #signed_support_weight = [1, correct_sign_evidence / sign_support_evidence_max].min
-          signed_support_weight = [1, correct_sign_evidence / total_evidence].min
+            non_contradictory_evidence = Misc.sum(sign_evidence.values_at(*[sign, "~"].uniq))
 
-          # Here we calculate the final weight by combining sign_weight and
-          # support_weight mixed in according to the variable
-          # <sign_support_balance>
-          weight = (signed_support_weight * sign_support_balance) + (support_weight * (1.0-sign_support_balance))
+            support_weight = [1, non_contradictory_evidence / support_evidence_max].min
+            #support_weight = [1, total_evidence / support_evidence_max].min
 
-          # The final weight is made negative when the sign is negative because
-          # this is how it is encoded in decopler
-          weight = - weight if sign == "-" 
+            # ToDo: test if sign_weight now
+            correct_sign_evidence = sign_evidence[sign]
+            #signed_support_weight = [1, correct_sign_evidence / sign_support_evidence_max].min
+            signed_support_weight = signed_evidence > 0 ? [1, correct_sign_evidence / signed_evidence].min : 0
 
-        next if weight.nan?
+            # Here we calculate the final weight by combining sign_weight and
+            # support_weight mixed in according to the variable
+            # <sign_support_balance>
+            weight = (signed_support_weight * sign_support_balance) + (support_weight * (1.0-sign_support_balance))
 
-      end
+            # The final weight is made negative when the sign is negative because
+            # this is how it is encoded in decopler
+            weight = - weight if sign == "-" 
+
+            next if weight.nan?
+
+          end
+        end
         id += 1
         [id, [source, target, weight]]
       end
     ensure
       set_info :controversies, controversies
     end
+
+    if auto_regulation_weight == -2
+      tfs = tsv.column(:source).values.uniq
+      i = tsv.length
+      tfs.each do |tf|
+        i += 1
+        tsv[i.to_s] = [tf, tf, 1]
+      end
+    end
+
+    tsv
+  end
+
+  dep :regulome, auto_regulation_weight: -1
+  task :regulome_fixed_ar => :tsv do
+    tsv = step(:regulome).load
+    tfs = tsv.column(:source).values.uniq
+    i = tsv.length
+    tfs.each do |tf|
+      i += 1
+      tsv[i.to_s] = [tf, tf, 1]
+    end
+
+    tsv
   end
 
   input :manual_regulome, :file, "Manual regulome" #, Rbbt.data.regulomes["CollecTRI.1-3-23.tsv"].tsv

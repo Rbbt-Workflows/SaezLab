@@ -315,6 +315,7 @@ module SaezLab
 
     Open.mkdir files_dir
 
+    network = network.tsv if Path === network
     tsv = nil
     RbbtPython.run  do
       decouple_kws={

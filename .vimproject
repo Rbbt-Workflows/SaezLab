@@ -1,7 +1,11 @@
 SaezLab=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.txt *.conf" {
  workflow.rb
+ chats=chats{
+  redo_benchmark
+ }
  bin=bin filter="*"{
   sweep.rb
+  sophia.sh
  }
  lib=lib {
   sinatra.rb
@@ -40,6 +44,12 @@ SaezLab=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.
   }
  }
  data=data filter="*"{
+  ExTRI2.tsv.gz
+  KnockTF_TF-type_171125.tsv
+  knockTF_selection.zip
+  knocktf_v2_main_human.txt
+  knocktf_v2_main_mouse.txt
+  valid_tfs.list
  }
  sophia=modules/CollecTRI/scripts/CollecTRI filter="*"{
   01_resource_aggregation.R

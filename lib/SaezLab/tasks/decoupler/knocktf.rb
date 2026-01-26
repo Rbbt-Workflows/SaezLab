@@ -78,7 +78,7 @@ module SaezLab
       nil
     end
   end
-  dep :regulome do |jobname,options,dependencies|
+  dep :regulome, auto_regulation_weight: -1 do |jobname,options,dependencies|
     if options[:dorothea]
       dependencies.flatten.select{|d| d.task_name == :dorothea }.first
     elsif options[:manual_regulome]
@@ -116,6 +116,7 @@ module SaezLab
 
     res = TSV.setup({}, "Dataset~TF,Value,Rank,pvalue#:type=:list")
     ground_truth.each do |dataset,tf|
+      tf = 'PHB1' if tf == 'PHB'
       dataset_values = result[dataset]
       begin
         if fields.include? "#{tf} (pvalue)"
@@ -150,15 +151,18 @@ module SaezLab
   dep :decoupler_predictions_knocktf
   input :activation_threshold, :float, "Threshold for activation", 0
   input :pvalue_threshold, :float, "Threshold for activation", 0.1
-  task :evaluate_knocktf => :tsv do |activation_threshold,pvalue_threshold|
+  input :only_dbTF, :boolean, "Evaluate only predictions for dbTFs", true
+  task :evaluate_knocktf => :tsv do |activation_threshold,pvalue_threshold,only_dbTF|
     tsv = TSV.setup({}, "Statistic~Value#:type=:single")
     tsv["Missing"]      ||= 0
     tsv["Miss-matches"] ||= 0
     tsv["Matches"]      ||= 0
 
+    dbTFs = Rbbt.data['KnockTF_TF-type_171125'].tsv.select('dbTF_annotation' => 'dbTF').keys
     ranks = []
     TSV.traverse step(:decoupler_predictions_knocktf) do |dataset, values|
       tf, value, rank, pvalue = values
+      next if only_dbTF && ! dbTFs.include?(tf)
       ranks << rank.to_f if rank || ! rank.empty?
 
       value = nil if value.to_f.abs < activation_threshold

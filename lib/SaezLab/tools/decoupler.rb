@@ -1,10 +1,11 @@
 require 'rbbt-util'
-require 'rbbt/util/python'
-require 'rbbt/util/python/util'
+require 'scout/python'
+require 'scout/python/util'
 
 module SaezLab
 
   def self._pycall_decoupler(&block)
+
     RbbtPython.run "decoupler", as: :decoupler_python, &block
   end
   
@@ -37,7 +38,8 @@ module SaezLab
       when "run_mlm"
         res_tuple = decoupler_python.run_mlm(mat, net, **options)
       when "run_ulm"
-        res_tuple = decoupler_python.run_ulm(mat, net, **options)
+        #res_tuple = decoupler_python.run_ulm(mat, net, **options)
+        res_tuple = decoupler_python.run(mat, net, **options)
       when "decouple"
         res_tuple = decoupler_python.decouple(mat, net, **options)
       else
@@ -77,26 +79,30 @@ module SaezLab
     mat = mat.tsv if Path === mat
     net = net.tsv if Path === net
 
+    IndiferentHash.setup options
     method = method.to_s
+
+    #options['tmin'] = options.delete :min_n
     method = 'decouple' if method.include?('combined')
     method = "run_" + method.to_s unless method =~ /^run_|decouple/ 
 
     TmpFile.with_dir do |dir|
       Path.setup(dir)
       acts = norm_acts = pvals = nil
-      RbbtPython.script <<-EOF, mat: mat, net: net, method: method, options: options, dir: dir
+      ScoutPython.script <<-EOF, mat: mat, net: net, method: method, options: options, dir: dir
 import decoupler
 
 mat = mat.astype('float')
 
 #res_tuple = decoupler.run_ulm(mat, net, **options)
+#res_tuple = getattr(decoupler.mt, method)(mat, net, **options)
 res_tuple = getattr(decoupler, method)(mat, net, **options)
 
 i = 0
 for t in res_tuple:
   i = i + 1
   filename = dir + "/" + "file" + str(i) + ".tsv"
-  rbbt.save_tsv(filename, t)
+  scout.save_tsv(filename, t)
       EOF
       acts, norm_acts, pvals = dir.glob("*.tsv").collect{|f| TSV.open(f, type: :list, cast: :to_f) }
       pvals, norm_acts = norm_acts, nil if pvals.nil?

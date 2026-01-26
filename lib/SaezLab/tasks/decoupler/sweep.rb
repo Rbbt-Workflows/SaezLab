@@ -1,40 +1,26 @@
 module SaezLab
 
-  dep :evaluate_knocktf, :negative_evidence_proportion => :sweep,
-    :sign_support_balance => :sweep, :strict_negative => :sweep, :support_evidence_max => :sweep do |jobname,options|
-
-    sign_support_balance_sweep = [0.0, 0.2, 0.3, 0.5, 0.7]
-    support_evidence_max_sweep = [1,2,3]
-    sign_support_evidence_max_sweep = [1,2,3]
-    strict_negative_sweep = [0.2,0.3,0.4] 
-    min_n_sweep = [3,4,5]
-    negative_evidence_proportion_sweep = [1]
-    use_tf_role_sweep = [true, false]
+  dep :evaluate_knocktf, :sign_support_balance => :sweep, :strict_negative => :sweep, :support_evidence_max => :sweep do |jobname,options|
+    sign_support_balance_sweep = [0.5, 0.1, 0.15, 0.2, 0.25]
+    strict_negative_sweep = [0.4, 0.5, 0.6] 
+    support_evidence_max_sweep = [50,100,200]
+    use_tf_role_sweep = [false]
 
     jobs = []
 
     sign_support_balance_sweep.each do |sign_support_balance|
       strict_negative_sweep.each do |strict_negative|
         support_evidence_max_sweep.each do |support_evidence_max|
-          sign_support_evidence_max_sweep.each do |sign_support_evidence_max|
-            negative_evidence_proportion_sweep.each do |negative_evidence_proportion|
-              min_n_sweep.each do |min_n|
-                use_tf_role_sweep.each do |use_tf_role|
+          use_tf_role_sweep.each do |use_tf_role|
 
-                  job_options = options.merge(
-                    :sign_support_balance => sign_support_balance,
-                    :strict_negative => strict_negative,
-                    :support_evidence_max => support_evidence_max,
-                    :sign_support_evidence_max => sign_support_evidence_max,
-                    :negative_evidence_proportion => negative_evidence_proportion,
-                    :use_tf_role => use_tf_role,
-                    :min_n => min_n
-                  )
+            job_options = options.merge(
+              :sign_support_balance => sign_support_balance,
+              :strict_negative => strict_negative,
+              :support_evidence_max => support_evidence_max,
+              :use_tf_role => use_tf_role,
+            )
 
-                  jobs << {:inputs => job_options}
-                end
-              end
-            end
+            jobs << {:inputs => job_options}
           end
         end
       end
@@ -44,12 +30,12 @@ module SaezLab
   end
   task :sweep => :tsv do
 
-    fields = [:strict_negative, :negative_evidence_proportion, :use_tf_role, :support_evidence_max , :sign_support_evidence_max, :sign_support_balance, :min_n]
+    fields = [:strict_negative, :use_tf_role, :support_evidence_max , :sign_support_evidence_max, :sign_support_balance]
     dependencies.inject(nil) do |acc,dep|
       expression = fields.zip(dep.recursive_inputs.values_at *fields).collect{|f,v| [f,v] * "="} * ","
       tsv = dep.load.transpose("Experiment")
       tsv[expression] = tsv.delete "Value"
-      
+
       acc = acc.nil? ? tsv : acc.merge!(tsv)
     end
   end
@@ -58,44 +44,44 @@ module SaezLab
   dep :evaluate_knocktf_auroc, :negative_evidence_proportion => :sweep,
     :sign_support_balance => :sweep, :strict_negative => :sweep, :support_evidence_max => :sweep do |jobname,options|
 
-    sign_support_balance_sweep = [0.0, 0.2, 0.3, 0.5, 0.7]
-    support_evidence_max_sweep = [1,2,3]
-    sign_support_evidence_max_sweep = [1,2,3]
-    strict_negative_sweep = [0.2,0.3,0.4] 
-    min_n_sweep = [3,4,5]
-    negative_evidence_proportion_sweep = [1]
-    use_tf_role_sweep = [true, false]
+      sign_support_balance_sweep = [0.0, 0.2, 0.3, 0.5, 0.7]
+      support_evidence_max_sweep = [1,2,3]
+      sign_support_evidence_max_sweep = [1,2,3]
+      strict_negative_sweep = [0.2,0.3,0.4] 
+      min_n_sweep = [3,4,5]
+      negative_evidence_proportion_sweep = [1]
+      use_tf_role_sweep = [true, false]
 
-    jobs = []
+      jobs = []
 
-    sign_support_balance_sweep.each do |sign_support_balance|
-      strict_negative_sweep.each do |strict_negative|
-        support_evidence_max_sweep.each do |support_evidence_max|
-          sign_support_evidence_max_sweep.each do |sign_support_evidence_max|
-            negative_evidence_proportion_sweep.each do |negative_evidence_proportion|
-              min_n_sweep.each do |min_n|
-                use_tf_role_sweep.each do |use_tf_role|
+      sign_support_balance_sweep.each do |sign_support_balance|
+        strict_negative_sweep.each do |strict_negative|
+          support_evidence_max_sweep.each do |support_evidence_max|
+            sign_support_evidence_max_sweep.each do |sign_support_evidence_max|
+              negative_evidence_proportion_sweep.each do |negative_evidence_proportion|
+                min_n_sweep.each do |min_n|
+                  use_tf_role_sweep.each do |use_tf_role|
 
-                  job_options = options.merge(
-                    :sign_support_balance => sign_support_balance,
-                    :strict_negative => strict_negative,
-                    :support_evidence_max => support_evidence_max,
-                    :sign_support_evidence_max => sign_support_evidence_max,
-                    :negative_evidence_proportion => negative_evidence_proportion,
-                    :use_tf_role => use_tf_role,
-                    :min_n => min_n
-                  )
+                    job_options = options.merge(
+                      :sign_support_balance => sign_support_balance,
+                      :strict_negative => strict_negative,
+                      :support_evidence_max => support_evidence_max,
+                      :sign_support_evidence_max => sign_support_evidence_max,
+                      :negative_evidence_proportion => negative_evidence_proportion,
+                      :use_tf_role => use_tf_role,
+                      :min_n => min_n
+                    )
 
-                  jobs << {:inputs => job_options}
+                    jobs << {:inputs => job_options}
+                  end
                 end
               end
             end
           end
         end
       end
-    end
 
-    jobs
+      jobs
     end
   task :sweep_auroc => :tsv do
 
@@ -120,7 +106,7 @@ module SaezLab
   end
 
   #{{{ --------------------- DATABASE SWEEPS ---------------------------
-  
+
   #{{{ ++++ DATABASE SWEEPS +++
 
   dep :evaluate_knocktf, :databases => [], :jobname => "CollecTRI", :canfail => true
@@ -144,7 +130,7 @@ module SaezLab
       end
       tsv = dep.load.transpose("Database")
       tsv[database] = tsv.delete "Value"
-      
+
       acc = acc.nil? ? tsv : acc.merge!(tsv)
     end
   end
@@ -165,7 +151,7 @@ module SaezLab
 
       tsv = dep.load.transpose("Database")
       tsv[database] = tsv.delete "Value"
-      
+
       acc = acc.nil? ? tsv : acc.merge!(tsv)
     end
   end
@@ -207,7 +193,7 @@ ggplot(data, ) + geom_point(aes(x=Matches,y=Accuracy..,color=Database)) +
 
 
   #{{{ ++++ R_BENCHMARK +++
-   
+
   dep :regulome, :databases => [], :jobname => "CollecTRI"
   dep :regulome, :databases => :regulome, :compute => :produce do |jobname,options|
     SaezLab.ExTRI_databases.collect do |db|
@@ -255,7 +241,7 @@ ggplot(data, ) + geom_point(aes(x=Matches,y=Accuracy..,color=Database)) +
     end
   end
 
-  
+
   dep :regulome, :databases => :regulome, :compute => :produce do |jobname,options|
     databases = SaezLab.ExTRI_databases
     databases.collect do |db|
@@ -325,7 +311,7 @@ ggplot(data, ) + geom_point(aes(x=Matches,y=Accuracy..,color=Database)) +
 plot = ggplot(data) + geom_boxplot(aes(x=reorder(Database,score), y=score)) + theme_classic() + rbbt.ggplot2.rotate_x_labels() + xlab('Database') + ylab('#{method} #{metric}')
 
     EOF
-    
+
     nil
   end
 
@@ -349,7 +335,7 @@ plot = ggplot(data) + geom_boxplot(aes(x=reorder(Database,score), y=score)) + th
 plot = ggplot(data) + geom_boxplot(aes(x=reorder(Database,score), y=score)) + theme_classic() + rbbt.ggplot2.rotate_x_labels() + xlab('Removed Database') + ylab('#{method} #{metric}')
 
     EOF
-    
+
     nil
   end
 end
