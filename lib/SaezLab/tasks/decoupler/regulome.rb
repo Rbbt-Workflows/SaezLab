@@ -121,28 +121,25 @@ module SaezLab
   end
 
   dep :count_signs
-  task mainly_repressor: :array do
-    tf_signs = {}
-    TSV.traverse step(:count_signs), :bar => self.progress_bar("Generating regulome") do |pair,values|
-      source, target = pair.split(":")
-      signs, pmids = values
-      counts = pmids.collect{|v| v.split(';').uniq.length }
-      sign_counts = Misc.zip2hash(signs, counts)
-      negative = sign_counts["-"] || 0
-      positive = sign_counts["+"] || 0
-
-      tf_signs[source] ||= 0
-      if negative >= positive
-        tf_signs[source] -= 1
-      else 
-        tf_signs[source] += 1
+  task :mayority_role => :tsv do
+    sign_counts = TSV.setup({}, key_field: "TF", fields: ["Sign"], type: :single, cast: :to_i )
+    TSV.traverse step(:count_signs) do |pair,values|
+      tf, tg = pair.split(":")
+      sign_counts[tf] ||= 0
+      hash = IndiferentHash.zip2hash(values.first, values.last.collect{|l| l.split(";").uniq.length})
+      pos = hash['+'] || 0
+      neg = hash['-'] || 0
+      if pos >= neg
+        sign_counts[tf] += 1
+      else
+        sign_counts[tf] -= 1
       end
     end
-    tf_signs.select{|tf,c| c < 0 }.collect{|tf,c| tf }
+    sign_counts
   end
 
   dep :count_signs
-  dep :mainly_repressor
+  dep :mayority_role
   dep :tf_role, :jobname => "Default"
   input :negative_evidence_proportion, :float, "(DEACTIVATED) Proportion of negative evidence for a negative sign", 1
   input :support_evidence_max, :integer, "Number of supporting evidence papers maximum to consider", 100
@@ -158,8 +155,8 @@ module SaezLab
 
     auto_regulation_weight = nil if auto_regulation_weight.to_f == 0.0
 
-    tf_role = step(:tf_role).load if use_tf_role
-    mainly_repressor = step(:mainly_repressor).load
+    mayority_role = step(:mayority_role).load
+    tf_role = step(:tf_role).load
 
     tsv = TSV.setup({}, :key_field => "ID", :fields => %w(source target weight), :type => :list)
     id = 1
@@ -238,14 +235,12 @@ module SaezLab
           # unknown) is larger than <strict_negative>, another parameter
           negative = true if negative_evidence > 0 && (negative_evidence / signed_evidence) >= strict_negative
 
-          negative = true if mainly_repressor.include?(source) && positive_evidence == 0
-
           flip = false
           if use_tf_role && tf_role[source] == "-" && positive_evidence == 0
             flip = true unless negative
             negative = true
-          elsif positive_evidence <= negative_evidence
-            negative = true if mainly_repressor.include?(source)
+          elsif positive_evidence == negative_evidence
+            negative = true if mayority_role[source] && mayority_role[source] < 0
           end
 
           # Here we define the sign_weight as the proportion of evidence
