@@ -147,7 +147,7 @@ module SaezLab
   input :sign_support_balance, :float, "Poportion of final weight that comes from sign. A value of -1 uses +1 and -1 values and ignores weight calculations", -1 
   input :strict_negative, :float, "Proportion of negative evidence required to make pair negative", 0.5
   input :use_tf_role, :boolean, "Use tf_role to fix negative values", false
-  input :auto_regulation_weight, :float, "Set weight for auto-regulation", 0
+  input :auto_regulation_weight, :float, "Set weight for auto-regulation: -1 means remove all instances", 0
   input :filter_valid_tfs, :boolean, "Consider only validated TFs", false
   task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative,use_tf_role,auto_regulation_weight,filter_valid_tfs|
 
@@ -167,6 +167,7 @@ module SaezLab
         source, target = pair.split(":")
 
         next if filter_valid_tfs && ! valid_tfs.include?(source)
+
         if auto_regulation_weight && source == target
           next if auto_regulation_weight == -1
           next if auto_regulation_weight == -2
