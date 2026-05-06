@@ -93,6 +93,30 @@ module SaezLab
   end
 
   dep :decoupler_knocktf
+  input :threshold, :float, "P-value threshold", 0.1
+  task :average_predictions => :json do |threshold|
+    decoupler_knocktf = step(:decoupler_knocktf).load
+    pos = []
+    neg = []
+    TSV.traverse step(:decoupler_knocktf), bar: 'Processing predictions' do |k,values,fields|
+      pos_count = 0
+      neg_count = 0
+      fields.zip(values).each do |field,value|
+        next if fields.include?('pvalue')
+        next unless value.to_f.abs < threshold
+        if value < 0
+          neg_count += 1
+        else
+          pos_count += 1
+        end
+      end
+      pos << pos_count
+      neg << neg_count
+    end
+    {average_pos: Misc.mean(pos), average_neg: Misc.mean(neg)}
+  end
+
+  dep :decoupler_knocktf
   dep_task :decoupler_knocktf_status, SaezLab, :decoupler_status, "SaezLab#decoupler" => :decoupler_knocktf
 
   dep :decoupler_knocktf

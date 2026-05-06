@@ -135,6 +135,31 @@ module SaezLab
     end
   end
 
+  dep :average_predictions, :databases => [], :jobname => "CollecTRI", :canfail => true
+  dep :average_predictions, :databases => :placeholder, :canfail => true do |jobname,options|
+    #SaezLab.ExTRI_databases.collect do |db|
+    ["ExTRI", "GEREDB", "DoRothEA_A", "NTNU Curated", "TRRUST"].collect do |db|
+      {:inputs => options.merge(:databases => [db]), :jobname => db }
+    end
+  end
+  dep :average_predictions, :databases => [], :dorothea => true, :jobname => "Dorothea"
+  task :average_predictions_database_sweep => :tsv do
+    tsv = TSV.setup({},key_field: "Database", fields: %w(Positive Negative), type: :list, cast: :to_f)
+    dependencies.each do |dep|
+      next acc unless dep.done?
+      if dep.recursive_inputs[:dorothea]
+        database = "Dorothea"
+      else
+        database = dep.recursive_inputs[:databases].first
+        if database.nil? || database.empty?
+          database = "CollecTRI" 
+        end
+      end
+      tsv[database] = IndiferentHash.setup(dep.load).values_at :average_pos, :average_neg
+    end
+    tsv
+  end
+
   dep :evaluate_knocktf, :databases => [], :jobname => "CollecTRI"
   dep :evaluate_knocktf, :databases => :placeholder, :canfail => true do |jobname,options|
     databases = SaezLab.ExTRI_databases
