@@ -187,7 +187,7 @@ module SaezLab
     TSV.traverse step(:decoupler_predictions_knocktf) do |dataset, values|
       tf, value, rank, pvalue = values
       next if only_dbTF && ! dbTFs.include?(tf)
-      ranks << rank.to_f if rank || ! rank.empty?
+      ranks << rank.to_f if rank && ! rank.empty?
 
       value = nil if value.to_f.abs < activation_threshold
       value = nil if pvalue.to_f > pvalue_threshold
