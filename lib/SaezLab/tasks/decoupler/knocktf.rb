@@ -166,7 +166,7 @@ module SaezLab
         value = nil
       end
       rank = all_values.index(value).to_f / all_values.length if value
-      res[dataset] = [tf, value, rank,pvalue]
+      res[dataset] = [tf, value, rank, pvalue]
     end
 
     res

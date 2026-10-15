@@ -123,6 +123,7 @@ module SaezLab
   dep :count_signs
   task :mayority_role => :tsv do
     sign_counts = TSV.setup({}, key_field: "TF", fields: ["Sign"], type: :single, cast: :to_i )
+    total_counts = {}
     TSV.traverse step(:count_signs) do |pair,values|
       tf, tg = pair.split(":")
       sign_counts[tf] ||= 0
@@ -134,8 +135,14 @@ module SaezLab
       else
         sign_counts[tf] -= 1
       end
+      total_counts[tf] ||= 0
+      total_counts[tf] += 1
     end
-    sign_counts
+    final_counts = sign_counts.annotate({})
+    sign_counts.each do |tf,counts|
+      final_counts[tf] = counts.to_f / total_counts[tf]
+    end
+    final_counts
   end
 
   dep :count_signs
@@ -147,7 +154,7 @@ module SaezLab
   input :sign_support_balance, :float, "Poportion of final weight that comes from sign. A value of -1 uses +1 and -1 values and ignores weight calculations", -1 
   input :strict_negative, :float, "Proportion of negative evidence required to make pair negative", 0.5
   input :use_tf_role, :boolean, "Use tf_role to fix negative values", false
-  input :auto_regulation_weight, :float, "Set weight for auto-regulation: -1 means remove all instances", 0
+  input :auto_regulation_weight, :float, "Set weight for auto-regulation: -1 means remove all instances, -2 means artificially add auto-regulation links of weight 1 to all TFs", 0
   input :filter_valid_tfs, :boolean, "Consider only validated TFs", false
   task :regulome => :tsv do |negative_evidence_proportion,support_evidence_max,sign_support_evidence_max,sign_support_balance,strict_negative,use_tf_role,auto_regulation_weight,filter_valid_tfs|
 
@@ -171,6 +178,7 @@ module SaezLab
         if auto_regulation_weight && source == target
           next if auto_regulation_weight == -1
           next if auto_regulation_weight == -2
+          next if auto_regulation_weight == -3
           weight = auto_regulation_weight
         else
 
@@ -305,6 +313,15 @@ module SaezLab
       tfs.each do |tf|
         i += 1
         tsv[i.to_s] = [tf, tf, 1]
+      end
+    end
+
+    if auto_regulation_weight == -3
+      tfs = tsv.column(:source).values.uniq
+      i = tsv.length
+      tfs.each do |tf|
+        i += 1
+        tsv[i.to_s] = [tf, tf, 0.1]
       end
     end
 
